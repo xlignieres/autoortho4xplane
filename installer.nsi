@@ -203,4 +203,3 @@ FunctionEnd
 Function un.onInit
   !insertmacro MULTIUSER_UNINIT
 FunctionEnd
-

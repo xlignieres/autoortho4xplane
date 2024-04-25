@@ -14,6 +14,7 @@ import argparse
 import platform
 import subprocess
 from urllib.request import urlopen, Request, urlretrieve, urlcleanup
+from urllib.error import URLError, HTTPError
 from datetime import datetime, timezone, timedelta
 from packaging import version
 
@@ -28,7 +29,7 @@ TESTMODE=os.environ.get('AO_TESTMODE', False)
 
 def do_url(url, headers={}, ):
     req = Request(url, headers=headers)
-    resp = urlopen(req, timeout=5)
+    resp = urlopen(req, timeout=15)
     if resp.status != 200:
         raise Exception
     return resp.read()
@@ -102,10 +103,11 @@ class Zip(object):
         log.info(f"Will assemble {self.path} from parts: {self.files}")
         with open(self.path, 'wb') as out_h:
             for f in self.files:
-                with open(f, 'rb') as in_h:
-                    out_h.write(in_h.read())
-                log.info(f"Removing {f}")
-                os.remove(f)
+                if os.path.exists(os.path.join(self.path,f)):
+                    with open(f, 'rb') as in_h:
+                        out_h.write(in_h.read())
+                    log.info(f"Removing {f}")
+                    os.remove(f)
 
         self.assembled = True
 
@@ -139,6 +141,8 @@ class Package(object):
     download_dir = ""
     install_dir = ""
     size = 0
+    regex_for_assembled_files =  r"^([\w]+\.zip)\.\d+$"
+    max_retries = 5
 
     installed = False
     downloaded = False
@@ -152,7 +156,7 @@ class Package(object):
         self,
         name,
         pkgtype,
-        download_dir = "."
+        download_dir = ".",
     ):
         self.name = name
         self.pkgtype = pkgtype
@@ -168,6 +172,7 @@ class Package(object):
 
 
     def download(self):
+        retries = 0
         if self.downloaded:
             log.info(f"Already downloaded.")
             return
@@ -178,11 +183,17 @@ class Package(object):
         for url in self.remote_urls:
             cur_activity['status'] = f"Downloading {url}"
 
+            posible_destpath = ""
             filename = os.path.basename(url)
             destpath = os.path.join(self.download_dir, filename)
+            log.info(filename)
+            match = re.match(self.regex_for_assembled_files, filename)
+            if (match):
+                log.info("match!")
+                posible_destpath = os.path.join(self.download_dir, match.group(1))
 
             #if os.path.isfile(self.zf.path):
-            if os.path.isfile(destpath):
+            if os.path.isfile(destpath) or os.path.isfile(posible_destpath):
                 log.info(f"{destpath} already exists.  Skip.")
                 #print(f"{self.zf.path} already exists.  Skip.")
                 #self.zf.assembled = True
@@ -190,21 +201,32 @@ class Package(object):
                 #return
                 #continue
             else:
-                log.info(f"Download {url}")
-                self.dl_start_time = time.time()
-                self.dl_url = url
-                urlcleanup()
-                local_file, headers = urlretrieve(
-                    url,
-                    destpath,
-                    self._show_progress
-                )
-                
-                cur_activity['status'] = f"DONE downloading {url}"
-                log.debug("  DONE!")
-                self.dl_start_time = None 
-                self.dl_url = None
-                urlcleanup()
+                while retries < self.max_retries:
+                    try:
+                        log.info(f"Download {url}")
+                        self.dl_start_time = time.time()
+                        self.dl_url = url
+                        urlcleanup()
+                        local_file, headers = urlretrieve(
+                            url,
+                            destpath,
+                            self._show_progress
+                        )
+                        log.info(f"DONE downloading {url}")
+                        break
+
+                    except (HTTPError, URLError) as e:
+                        retries += 1
+                        log.error(f"Failed to download {url}, attempt {retries} of {self.max_retries}. Error: {e}")
+                        time.sleep(2**retries)  # Exponencial backoff
+                    finally:
+                        self.dl_start_time = None
+                        self.dl_url = None
+                        urlcleanup()
+
+                if retries == self.max_retries:
+                    log.error(f"Max retries reached. Failed to download {url}")
+
 
             if destpath.endswith('sha256'):
                 self.zf.hashfile = destpath
@@ -659,6 +681,7 @@ class OrthoManager(object):
 
         if not data and os.path.exists(self.info_cache):
             log.info(f"Using cache ...")
+            log.info(self.info_cache)
             with open(self.info_cache, "rb") as h:
                 resp = h.read()
             data = json.loads(resp)
