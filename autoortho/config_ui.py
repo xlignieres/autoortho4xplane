@@ -97,7 +97,7 @@ class ConfigUI(object):
         scenery_path = self.cfg.paths.scenery_path
         showconfig = self.cfg.general.showconfig
         maptype = self.cfg.autoortho.maptype_override
-        maptypes = ['', 'BI', 'NAIP', 'EOX', 'USGS', 'Firefly'] 
+        maptypes = ['', 'BI', 'GO2','NAIP', 'EOX', 'USGS', 'Firefly'] 
 
         sg.theme('DarkAmber')
 
@@ -171,6 +171,25 @@ class ConfigUI(object):
                 #    metadata={'section':self.cfg.cache}
                 #),
             ],
+            [sg.HorizontalSeparator(pad=5)],
+            [
+                sg.Text('Memory cache limit in GB'),
+                sg.Slider(
+                    range=(2,64,1),
+                    default_value=self.cfg.cache.cache_mem_limit, 
+                    key='cache_mem_limit',
+                    size=(40,15),
+                    orientation='horizontal',
+                    metadata={'section':self.cfg.cache}
+                )
+            ],
+            [sg.HorizontalSeparator(pad=5)],
+            [
+            sg.Checkbox('Prefer WinFSP over Dokan (Windows only)', key='prefer_winfsp',
+            default=self.cfg.windows.prefer_winfsp,
+            metadata={'section':self.cfg.windows}
+               )
+               ],
             #[
             #    sg.Checkbox('Cleanup cache on start', key='clean_on_start',
             #        default=self.cfg.cache.clean_on_start,
