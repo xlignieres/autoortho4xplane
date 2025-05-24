@@ -241,8 +241,12 @@ class Chunk(object):
         if not self.data:
             return
 
-        with open(self.cache_path, 'wb') as h:
+        # Temporarily use an invalid cache file name so that it cannot be
+        # found while it is being written.
+        temp_filename = os.path.join(self.cache_dir, f"XX_{self.chunk_id}.jpg")
+        with open(temp_filename, 'wb') as h:
             h.write(self.data)
+        os.rename(temp_filename, self.cache_path)
 
     def get(self, idx=0, session=requests):
         log.debug(f"Getting {self}") 
