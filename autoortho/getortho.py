@@ -726,11 +726,11 @@ class Tile(object):
 
         log.debug(f"GET_IMG: Will use image {new_im}")
 
-        chunks[0].ready.wait(maxwait)
+        #chunks[0].ready.wait(maxwait)
         #log.info(f"NUM CHUNKS: {len(chunks)}")
         for chunk in chunks:
-            chunk_ready = chunk.ready.is_set()
-            #chunk_ready = chunk.ready.wait(maxwait)
+            #chunk_ready = chunk.ready.is_set()
+            chunk_ready = chunk.ready.wait(maxwait)
             
             start_x = int((chunk.width) * (chunk.col - col))
             start_y = int((chunk.height) * (chunk.row - row))
