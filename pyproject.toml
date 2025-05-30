@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "autoortho4xplane"
-version = "0.7.3"
+version = "0.7.4"
 description = "AutoOrtho project for X-plane, the project is a fork ."
 authors = []
 license = "Apache 2.0"
@@ -13,13 +13,13 @@ flask-socketio = "^5.3.7"
 geocoder = "^1.38.1"
 packaging = "^24.1"
 psutil = "^6.0.0"
-pysimplegui = "<5.0"
+freesimplegui = "^5.2.0"
 pytest = "8.3.3"
 refuse = "0.0.4"
 requests = "^2.32.3"
 
 [tool.poetry.dev-dependencies]
-pytest = "7.*"
+pytest = "8.*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
