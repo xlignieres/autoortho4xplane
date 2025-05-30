@@ -6,17 +6,17 @@ authors = []
 license = "Apache 2.0"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-eventlet = "0.33.3"
+python = "^3.12"
+eventlet = "^0.37.0"
 flask = "3.0.3"
-flask-socketio = "5.3.4"
-geocoder = "1.38.1"
-packaging = "23.1"
-psutil = "5.9.2"
-pysimplegui = "5.*"
-pytest = "7.4.0"
+flask-socketio = "^5.3.7"
+geocoder = "^1.38.1"
+packaging = "^24.1"
+psutil = "^6.0.0"
+pysimplegui = "<5.0"
+pytest = "8.3.3"
 refuse = "0.0.4"
-requests = "2.31.0"
+requests = "^2.32.3"
 
 [tool.poetry.dev-dependencies]
 pytest = "7.*"
