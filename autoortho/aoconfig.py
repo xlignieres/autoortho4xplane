@@ -72,7 +72,7 @@ min_zoom = 12
 # stutters.  Lower numbers will be more responsive at the expense of
 # ocassional low quality tiles.
 maxwait = 0.5
-maptypes = ['Null', 'BI', 'NAIP', 'EOX', 'USGS', 'Firefly']
+maptypes = ['Null', 'BI', 'GO2','NAIP', 'EOX', 'USGS', 'Firefly']
 fetch_threads = 32 
 
 [pydds]
@@ -99,8 +99,11 @@ xplane_udp_port = 49000
 # Max size of the image disk cache in GB. Minimum of 10GB
 file_cache_size = 30
 
+# Max size of memory cache in GB. Minimmum of 2GB.
+cache_mem_limit = 4
+
 [windows]
-prefer_winfsp = False
+prefer_winfsp = True
 """
 
     def __init__(self, conf_file=None):

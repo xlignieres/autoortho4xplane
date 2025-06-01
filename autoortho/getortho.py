@@ -241,8 +241,12 @@ class Chunk(object):
         if not self.data:
             return
 
-        with open(self.cache_path, 'wb') as h:
+        # Temporarily use an invalid cache file name so that it cannot be
+        # found while it is being written.
+        temp_filename = os.path.join(self.cache_dir, f"XX_{self.chunk_id}.jpg")
+        with open(temp_filename, 'wb') as h:
             h.write(self.data)
+        os.rename(temp_filename, self.cache_path)
 
     def get(self, idx=0, session=requests):
         log.debug(f"Getting {self}") 
@@ -264,9 +268,9 @@ class Chunk(object):
         MAPID = "s2cloudless-2023_3857"
         MATRIXSET = "g"
         MAPTYPES = {
-            "EOX": f"https://{server}.s2maps-tiles.eu/wmts?layer={MAPID}&style=default&tilematrixset={MATRIXSET}&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image%2Fjpeg&TileMatrix={self.zoom}&TileCol={self.col}&TileRow={self.row}",
+            "EOX": f"https://{server}.tiles.maps.eox.at/wmts/?layer={MAPID}&style=default&tilematrixset={MATRIXSET}&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image%2Fjpeg&TileMatrix={self.zoom}&TileCol={self.col}&TileRow={self.row}",
             "BI": f"https://ecn.t{server_num}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=13816",
-            "GO2": f"http://khms{server_num}.google.com/kh/v=934?x={self.col}&y={self.row}&z={self.zoom}",
+            "GO2": f"http://mts{server_num}.google.com/vt/lyrs=s&x={self.col}&y={self.row}&z={self.zoom}",
             "ARC": f"http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
             "NAIP": f"http://naip.maptiles.arcgis.com/arcgis/rest/services/NAIP/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
             "USGS": f"https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
@@ -284,11 +288,10 @@ class Chunk(object):
         header = {
                 "user-agent": "curl/7.68.0"
         }
-
         if self.maptype.upper() == "EOX":
             log.info("EOX DETECTED")
             header.update({'referer': 'https://s2maps.eu/'})
-        
+       
         time.sleep((self.attempt/10))
         self.attempt += 1
 
@@ -724,11 +727,11 @@ class Tile(object):
 
         log.debug(f"GET_IMG: Will use image {new_im}")
 
-        chunks[0].ready.wait(maxwait)
+        #chunks[0].ready.wait(maxwait)
         #log.info(f"NUM CHUNKS: {len(chunks)}")
         for chunk in chunks:
-            chunk_ready = chunk.ready.is_set()
-            #chunk_ready = chunk.ready.wait(maxwait)
+            #chunk_ready = chunk.ready.is_set()
+            chunk_ready = chunk.ready.wait(maxwait)
             
             start_x = int((chunk.width) * (chunk.col - col))
             start_y = int((chunk.height) * (chunk.row - row))
@@ -936,7 +939,7 @@ class TileCacher(object):
     misses = 0
 
     enable_cache = True
-    cache_mem_lim = pow(2,30) * 1
+    cache_mem_lim = pow(2,30) * float(CFG.cache.cache_mem_limit)
     cache_tile_lim = 25
 
     def __init__(self, cache_dir='.cache'):
