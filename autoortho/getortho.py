@@ -105,14 +105,17 @@ class Getter(object):
         self.WORKING = False
         for t in self.workers:
             t.join()
-        self.stat_t.join()
+        # If a stats thread was started, join it as well
+        stat_thread = getattr(self, 'stat_t', None)
+        if stat_thread is not None:
+            stat_thread.join()
 
     def worker(self, idx):
         global STATS
         self.localdata.idx = idx
         while self.WORKING:
             try:
-                obj, args, kwargs = self.queue.get(timeout=5)
+                obj, args, kwargs = self.queue.get(timeout=30)
                 #log.debug(f"Got: {obj} {args} {kwargs}")
             except Empty:
                 #log.debug(f"timeout, continue")
@@ -358,9 +361,19 @@ class Chunk(object):
         return True
 
     def close(self):
+        """Release all references held by this Chunk so its memory can be reclaimed."""
+
+        # Release image buffer if we created one
+        if hasattr(self, 'img') and self.img is not None:
+            try:
+                # AoImage instances have a close() that frees underlying C memory
+                if hasattr(self.img, "close"):
+                    self.img.close()
+            finally:
+                self.img = None
+
+        # Remove raw JPEG bytes
         self.data = None
-        #self.img.close()
-        #del(self.img)
 
 
 class Tile(object):
@@ -386,6 +399,7 @@ class Tile(object):
     refs = None
 
     maxchunk_wait = float(CFG.autoortho.maxwait)
+    print("Max chunk wait: ", maxchunk_wait)
     imgs = None
 
     def __init__(self, col, row, maptype, zoom, min_zoom=0, priority=0,
@@ -928,6 +942,26 @@ class Tile(object):
             log.warning(f"TILE: Trying to close, but has refs: {self.refs}")
             return
 
+        # ------------------------------------------------------------------
+        # Memory-reclamation additions
+        # ------------------------------------------------------------------
+
+        # 1) Free any cached AoImage instances (RGBA pixel buffers)
+        try:
+            for im in list(self.imgs.values()):
+                if im is not None and hasattr(im, "close"):
+                    im.close()
+        finally:
+            self.imgs.clear()
+
+        # 2) Release DDS mip-map ByteIO buffers so the underlying bytes
+        #    are no longer referenced from Python.
+        if self.dds is not None:
+            for mm in getattr(self.dds, "mipmap_list", []):
+                mm.databuffer = None
+            # Drop the DDS object reference itself
+            self.dds = None
+
         for chunks in self.chunks.values():
             for chunk in chunks:
                 chunk.close()
@@ -1083,3 +1117,38 @@ class TileCacher(object):
                 log.debug(f"Still have {t.refs} refs for {tile_id}")
 
         return True
+
+# ============================================================
+# Module-level cleanup helpers
+# ============================================================
+
+def shutdown():
+    """Free network pools, worker threads and cached tiles to minimise RSS
+    just before interpreter exit. Safe to call multiple times."""
+
+    global chunk_getter
+
+    # 1. Stop background download threads
+    try:
+        if chunk_getter is not None:
+            chunk_getter.stop()
+            chunk_getter = None
+    except Exception as _err:
+        log.debug(f"ChunkGetter stop error: {_err}")
+
+    # 2. Iterate over every TileCacher instance still alive and flush
+    #    its caches.  We avoid importing autoortho_fuse to prevent cycles; instead
+    #    we search the GC list.
+    import gc
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, TileCacher):
+                with obj.tc_lock:
+                    for tile in list(obj.tiles.values()):
+                        tile.close()
+                    obj.tiles.clear()
+        except Exception:
+            # Ignore any edge-case failures during shutdown
+            pass
+
+    log.info("autoortho.getortho shutdown complete")

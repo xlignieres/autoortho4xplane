@@ -71,7 +71,7 @@ min_zoom = 12
 # Max time to wait for images.  Higher numbers mean better quality, but more
 # stutters.  Lower numbers will be more responsive at the expense of
 # ocassional low quality tiles.
-maxwait = 0.5
+maxwait = 5
 maptypes = ['Null', 'BI', 'GO2','NAIP', 'EOX', 'USGS', 'Firefly']
 fetch_threads = 32 
 
