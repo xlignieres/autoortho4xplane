@@ -105,14 +105,17 @@ class Getter(object):
         self.WORKING = False
         for t in self.workers:
             t.join()
-        self.stat_t.join()
+        # If a stats thread was started, join it as well
+        stat_thread = getattr(self, 'stat_t', None)
+        if stat_thread is not None:
+            stat_thread.join()
 
     def worker(self, idx):
         global STATS
         self.localdata.idx = idx
         while self.WORKING:
             try:
-                obj, args, kwargs = self.queue.get(timeout=5)
+                obj, args, kwargs = self.queue.get(timeout=30)
                 #log.debug(f"Got: {obj} {args} {kwargs}")
             except Empty:
                 #log.debug(f"timeout, continue")
@@ -241,8 +244,12 @@ class Chunk(object):
         if not self.data:
             return
 
-        with open(self.cache_path, 'wb') as h:
+        # Temporarily use an invalid cache file name so that it cannot be
+        # found while it is being written.
+        temp_filename = os.path.join(self.cache_dir, f"XX_{self.chunk_id}.jpg")
+        with open(temp_filename, 'wb') as h:
             h.write(self.data)
+        os.rename(temp_filename, self.cache_path)
 
     def get(self, idx=0, session=requests):
         log.debug(f"Getting {self}") 
@@ -261,23 +268,33 @@ class Chunk(object):
         # Hack override maptype
         #maptype = "ARC"
 
-        MAPID = "s2cloudless-2020_3857"
+        MAPID = "s2cloudless-2023_3857"
         MATRIXSET = "g"
         MAPTYPES = {
-            "EOX": f"https://{server}.s2maps-tiles.eu/wmts/?layer={MAPID}&style=default&tilematrixset={MATRIXSET}&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image%2Fjpeg&TileMatrix={self.zoom}&TileCol={self.col}&TileRow={self.row}",
+            "EOX": f"https://{server}.tiles.maps.eox.at/wmts/?layer={MAPID}&style=default&tilematrixset={MATRIXSET}&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image%2Fjpeg&TileMatrix={self.zoom}&TileCol={self.col}&TileRow={self.row}",
             "BI": f"https://ecn.t{server_num}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=13816",
-            "GO2": f"http://khms{server_num}.google.com/kh/v=934?x={self.col}&y={self.row}&z={self.zoom}",
+            "GO2": f"http://mts{server_num}.google.com/vt/lyrs=s&x={self.col}&y={self.row}&z={self.zoom}",
             "ARC": f"http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
             "NAIP": f"http://naip.maptiles.arcgis.com/arcgis/rest/services/NAIP/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
             "USGS": f"https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
             "FIREFLY": f"https://fly.maptiles.arcgis.com/arcgis/rest/services/World_Imagery_Firefly/MapServer/tile/{self.zoom}/{self.row}/{self.col}"
         }
+
+
+        
+        #if self.maptype.upper() == "EOX":
+        #    session.headers.update({'referer': 'https://s2maps.eu/'})
+
+
         self.url = MAPTYPES[self.maptype.upper()]
         #log.debug(f"{self} getting {url}")
         header = {
                 "user-agent": "curl/7.68.0"
         }
-        
+        if self.maptype.upper() == "EOX":
+            log.info("EOX DETECTED")
+            header.update({'referer': 'https://s2maps.eu/'})
+       
         time.sleep((self.attempt/10))
         self.attempt += 1
 
@@ -288,6 +305,8 @@ class Chunk(object):
         resp = 0
         try:
             if use_requests:
+                # FIXME: Not the best way to set headers
+                session.headers = header
                 #resp = session.get(self.url, stream=True)
                 resp = session.get(self.url)
                 status_code = resp.status_code
@@ -342,9 +361,19 @@ class Chunk(object):
         return True
 
     def close(self):
+        """Release all references held by this Chunk so its memory can be reclaimed."""
+
+        # Release image buffer if we created one
+        if hasattr(self, 'img') and self.img is not None:
+            try:
+                # AoImage instances have a close() that frees underlying C memory
+                if hasattr(self.img, "close"):
+                    self.img.close()
+            finally:
+                self.img = None
+
+        # Remove raw JPEG bytes
         self.data = None
-        #self.img.close()
-        #del(self.img)
 
 
 class Tile(object):
@@ -370,6 +399,7 @@ class Tile(object):
     refs = None
 
     maxchunk_wait = float(CFG.autoortho.maxwait)
+    print("Max chunk wait: ", maxchunk_wait)
     imgs = None
 
     def __init__(self, col, row, maptype, zoom, min_zoom=0, priority=0,
@@ -711,11 +741,11 @@ class Tile(object):
 
         log.debug(f"GET_IMG: Will use image {new_im}")
 
-        chunks[0].ready.wait(maxwait)
+        #chunks[0].ready.wait(maxwait)
         #log.info(f"NUM CHUNKS: {len(chunks)}")
         for chunk in chunks:
-            chunk_ready = chunk.ready.is_set()
-            #chunk_ready = chunk.ready.wait(maxwait)
+            #chunk_ready = chunk.ready.is_set()
+            chunk_ready = chunk.ready.wait(maxwait)
             
             start_x = int((chunk.width) * (chunk.col - col))
             start_y = int((chunk.height) * (chunk.row - row))
@@ -912,6 +942,26 @@ class Tile(object):
             log.warning(f"TILE: Trying to close, but has refs: {self.refs}")
             return
 
+        # ------------------------------------------------------------------
+        # Memory-reclamation additions
+        # ------------------------------------------------------------------
+
+        # 1) Free any cached AoImage instances (RGBA pixel buffers)
+        try:
+            for im in list(self.imgs.values()):
+                if im is not None and hasattr(im, "close"):
+                    im.close()
+        finally:
+            self.imgs.clear()
+
+        # 2) Release DDS mip-map ByteIO buffers so the underlying bytes
+        #    are no longer referenced from Python.
+        if self.dds is not None:
+            for mm in getattr(self.dds, "mipmap_list", []):
+                mm.databuffer = None
+            # Drop the DDS object reference itself
+            self.dds = None
+
         for chunks in self.chunks.values():
             for chunk in chunks:
                 chunk.close()
@@ -923,7 +973,7 @@ class TileCacher(object):
     misses = 0
 
     enable_cache = True
-    cache_mem_lim = pow(2,30) * 1
+    cache_mem_lim = pow(2,30) * float(CFG.cache.cache_mem_limit)
     cache_tile_lim = 25
 
     def __init__(self, cache_dir='.cache'):
@@ -1067,3 +1117,38 @@ class TileCacher(object):
                 log.debug(f"Still have {t.refs} refs for {tile_id}")
 
         return True
+
+# ============================================================
+# Module-level cleanup helpers
+# ============================================================
+
+def shutdown():
+    """Free network pools, worker threads and cached tiles to minimise RSS
+    just before interpreter exit. Safe to call multiple times."""
+
+    global chunk_getter
+
+    # 1. Stop background download threads
+    try:
+        if chunk_getter is not None:
+            chunk_getter.stop()
+            chunk_getter = None
+    except Exception as _err:
+        log.debug(f"ChunkGetter stop error: {_err}")
+
+    # 2. Iterate over every TileCacher instance still alive and flush
+    #    its caches.  We avoid importing autoortho_fuse to prevent cycles; instead
+    #    we search the GC list.
+    import gc
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, TileCacher):
+                with obj.tc_lock:
+                    for tile in list(obj.tiles.values()):
+                        tile.close()
+                    obj.tiles.clear()
+        except Exception:
+            # Ignore any edge-case failures during shutdown
+            pass
+
+    log.info("autoortho.getortho shutdown complete")
