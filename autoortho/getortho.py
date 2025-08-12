@@ -272,7 +272,7 @@ class Chunk(object):
         MATRIXSET = "g"
         MAPTYPES = {
             "EOX": f"https://{server}.tiles.maps.eox.at/wmts/?layer={MAPID}&style=default&tilematrixset={MATRIXSET}&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image%2Fjpeg&TileMatrix={self.zoom}&TileCol={self.col}&TileRow={self.row}",
-            "BI": f"http://r{server_num}.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=13816",
+            "BI": f"https://r{server_num}.ortho.tiles.virtualearth.net/tiles/a{quadkey}.jpeg?g=13816",
             "GO2": f"http://mts{server_num}.google.com/vt/lyrs=s&x={self.col}&y={self.row}&z={self.zoom}",
             "ARC": f"http://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
             "NAIP": f"http://naip.maptiles.arcgis.com/arcgis/rest/services/NAIP/MapServer/tile/{self.zoom}/{self.row}/{self.col}",
